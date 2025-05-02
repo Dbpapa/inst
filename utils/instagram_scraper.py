@@ -1,40 +1,51 @@
-import os
-import requests
-from bs4 import BeautifulSoup
 import instaloader
-from datetime import datetime
-from urllib.parse import urlparse
-import time
-from dotenv import load_dotenv
-from utils.helpers import db_manager
-
-load_dotenv()
+import requests
+import re
+import os
 
 class InstagramScraper:
     def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
         self.loader = instaloader.Instaloader(
             quiet=True,
             download_video_thumbnails=False,
-            download_geotags=False,
-            download_comments=False,
             save_metadata=False
         )
         
-    # ... [Keep all the instagram_scraper.py code from previous answer] ...
-
-    def download_post(self, shortcode):
+    def get_profile_posts(self, username: str) -> list:
         try:
-            # ... [existing download code] ...
-            db_manager.log_download(user_id, post.owner_username)
-            return filename
+            profile = instaloader.Profile.from_username(self.loader.context, username)
+            
+            if profile.is_private:
+                return []
+                
+            return [{
+                'url': post.url,
+                'caption': post.caption if post.caption else "",
+                'is_video': post.is_video,
+                'username': username,
+                'timestamp': post.date_utc
+            } for post in profile.get_posts()][:50]  # Limit to 50 posts
+            
         except Exception as e:
-            db_manager.downloads.update_one(
-                {'shortcode': shortcode},
-                {'$inc': {'errors': 1}},
-                upsert=True
-            )
+            print(f"Scraping error: {e}")
+            return []
+            
+    def download_media(self, url: str) -> str:
+        try:
+            if not os.path.exists('downloads'):
+                os.makedirs('downloads')
+                
+            filename = url.split('/')[-1].split('?')[0]
+            filepath = f"downloads/{filename}"
+            
+            with requests.get(url, stream=True) as r:
+                r.raise_for_status()
+                with open(filepath, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                        
+            return filepath
+            
+        except Exception as e:
+            print(f"Download error: {e}")
             raise
