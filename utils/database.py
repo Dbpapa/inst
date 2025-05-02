@@ -11,8 +11,8 @@ class MongoDB:
         self.db.users.update_one(
             {'user_id': user_id},
             {'$set': {
-                'last_seen': datetime.utcnow(),
-                'username': username
+                'username': username,
+                'last_seen': datetime.utcnow()
             }},
             upsert=True
         )
