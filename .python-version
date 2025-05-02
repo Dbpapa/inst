@@ -1,1 +1,4 @@
-echo "3.10.16" > .python-version
+
+
+# Create new file with text editor
+echo "3.10" > .python-version  # Or "3.10.16" for exact version
