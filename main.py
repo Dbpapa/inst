@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Updater,
@@ -23,6 +25,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Minimal health check server for Koyeb port verification"""
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'OK')
+
+def run_health_server():
+    """Start health check server in separate thread"""
+    server = HTTPServer(('0.0.0.0', 3000), HealthCheckHandler)
+    logger.info("Health check server running on port 3000")
+    server.serve_forever()
+
 class InstaBot:
     def __init__(self):
         self.bot_token = os.getenv('BOT_TOKEN')
@@ -31,27 +47,20 @@ class InstaBot:
         self.scraper = InstagramScraper()
         self.db = MongoDB()
         
+        # Start health server
+        health_thread = threading.Thread(target=run_health_server, daemon=True)
+        health_thread.start()
+
         # Register handlers
         self.dispatcher.add_handler(CommandHandler("start", self.start))
         self.dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, self.handle_username))
         self.dispatcher.add_handler(CallbackQueryHandler(self.button_handler))
         
-        # Error handler
+        # Error handling
         self.dispatcher.add_error_handler(self.error_handler)
 
-    # ADD MISSING METHODS HERE
-    def start(self, update: Update, context: CallbackContext):
-        user = update.effective_user
-        update.message.reply_text(f"👋 Hello {user.first_name}!\nSend me an Instagram username to begin.")
-        self.db.log_user(user.id, user.username)
-
-    def handle_username(self, update: Update, context: CallbackContext):
-        # Add your username handling logic here
-        pass
-
-    def button_handler(self, update: Update, context: CallbackContext):
-        # Add your button handling logic here
-        pass
+    # [Keep all your existing handler methods here]
+    # start(), handle_username(), button_handler(), etc.
 
     def error_handler(self, update: Update, context: CallbackContext):
         logger.error(msg="Exception:", exc_info=context.error)
