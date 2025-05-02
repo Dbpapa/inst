@@ -1,0 +1,6 @@
+python-telegram-bot==13.7
+requests==2.25.1
+beautifulsoup4==4.9.3
+instaloader==4.8.4
+python-dotenv==0.19.0
+pymongo==4.3.3
