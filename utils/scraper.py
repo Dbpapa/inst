@@ -1,76 +1,49 @@
-import instaloader
 import requests
-import os
-import time
+import json
+import re
 from datetime import datetime
 
 class InstagramScraper:
     def __init__(self):
-        self.loader = instaloader.Instaloader(
-            quiet=True,
-            download_video_thumbnails=False,
-            save_metadata=False
-        )
-        
-        # Instagram credentials from environment
-        self.insta_user = os.getenv('INSTAGRAM_USERNAME')
-        self.insta_pass = os.getenv('INSTAGRAM_PASSWORD')
-        
-        if not self.insta_user or not self.insta_pass:
-            raise ValueError("Instagram credentials not found in environment variables")
-            
-        try:
-            self.loader.login(self.insta_user, self.insta_pass)
-            print("Successfully logged in to Instagram")
-        except Exception as e:
-            print(f"Instagram login failed: {e}")
-            raise
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/80.0.3987.162 Mobile Safari/537.36'
+        }
 
     def get_profile_posts(self, username: str) -> list:
-        """Get recent posts from public profile with rate limiting"""
+        """Get public posts using mobile API endpoints"""
         try:
-            profile = instaloader.Profile.from_username(self.loader.context, username)
+            # Get profile JSON data
+            profile_url = f'https://www.instagram.com/{username}/?__a=1'
+            response = requests.get(profile_url, headers=self.headers, timeout=10)
             
-            if profile.is_private:
+            if response.status_code != 200:
                 return []
                 
-            # Rate limiting
-            time.sleep(2)  # 2-second delay between requests
+            data = json.loads(re.findall(r'<script type="text/javascript">window\._sharedData = (.*);</script>', response.text)[0])
+            user_id = data['entry_data']['ProfilePage'][0]['graphql']['user']['id']
             
-            return [{
-                'url': post.url,
-                'display_url': post.url,
-                'thumbnail_url': post.video_url if post.is_video else post.url,
-                'caption': post.caption[:2000] if post.caption else "",
-                'date': post.date_utc.strftime('%Y-%m-%d %H:%M'),
-                'is_video': post.is_video,
-                'username': username,
-                'shortcode': post.shortcode
-            } for post in profile.get_posts()][:6]  # Limit to 6 posts
+            # Get posts JSON
+            posts_url = f'https://www.instagram.com/graphql/query/?query_hash=69cba40317214236af40e7efa697781d&variables=%7B%22id%22%3A%22{user_id}%22%2C%22first%22%3A12%7D'
+            posts_response = requests.get(posts_url, headers=self.headers)
+            posts_data = posts_response.json()
             
-        except instaloader.exceptions.QueryReturnedBadRequestException:
-            print("Instagram rate limit exceeded - add delays")
-            return []
+            return [self._parse_post(edge['node'], username) 
+                    for edge in posts_data['data']['user']['edge_owner_to_timeline_media']['edges']]
+            
         except Exception as e:
             print(f"Scraping error: {e}")
             return []
-            
-    def download_media(self, url: str) -> str:
-        """Download media from URL with error handling"""
-        try:
-            if not os.path.exists('downloads'):
-                os.makedirs('downloads')
-                
-            filename = url.split('/')[-1].split('?')[0]
-            filepath = f"downloads/{filename}"
-            
-            with requests.get(url, stream=True, timeout=30) as r:
-                r.raise_for_status()
-                with open(filepath, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-            return filepath
-            
-        except requests.exceptions.RequestException as e:
-            print(f"Download error: {e}")
-            raise
+
+    def _parse_post(self, post_data: dict, username: str) -> dict:
+        """Parse raw post data into usable format"""
+        return {
+            'username': username,
+            'caption': post_data['edge_media_to_caption']['edges'][0]['node']['text'] if post_data['edge_media_to_caption']['edges'] else "",
+            'date': datetime.fromtimestamp(post_data['taken_at_timestamp']).strftime('%Y-%m-%d %H:%M'),
+            'image_url': post_data['display_url'],
+            'video_url': post_data.get('video_url', ''),
+            'is_video': post_data['is_video'],
+            'shortcode': post_data['shortcode']
+        }
