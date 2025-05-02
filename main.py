@@ -89,8 +89,97 @@ class InstaBot:
             logger.error(f"Error: {e}")
             update.message.reply_text("⚠️ Service unavailable. Try again later.")
 
-    # [Rest of the methods remain unchanged - show_post, button_handler, download_post, etc.]
-    # ... (Keep all other methods from previous answer unchanged) ...
+    def show_post(self, update: Update, context: CallbackContext, index: int):
+        posts = context.user_data['posts']
+        post = posts[index]
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("⬅️", callback_data=f"prev_{index}"),
+                InlineKeyboardButton("Download", callback_data=f"dl_{index}"),
+                InlineKeyboardButton("➡️", callback_data=f"next_{index}"),
+            ]
+        ]
+        
+        try:
+            if post['is_video']:
+                update.message.reply_video(
+                    video=post['thumbnail_url'],
+                    caption=f"🎥 {post['caption']}\n📅 {post['date']}",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                update.message.reply_photo(
+                    photo=post['display_url'],
+                    caption=f"📸 {post['caption']}\n📅 {post['date']}",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+        except Exception as e:
+            logger.error(f"Display error: {e}")
+            self.show_post(update, context, (index + 1) % len(posts))
+
+    def button_handler(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        query.answer()
+        
+        data = query.data.split('_')
+        action = data[0]
+        index = int(data[1])
+        posts = context.user_data.get('posts', [])
+
+        if action == 'dl':
+            self.download_post(update, context, index)
+        else:
+            new_index = index
+            if action == 'prev':
+                new_index = max(0, index - 1)
+            elif action == 'next':
+                new_index = min(len(posts) - 1, index + 1)
+            
+            context.user_data['current_index'] = new_index
+            self.show_post(update, context, new_index)
+
+    def download_post(self, update: Update, context: CallbackContext, index: int):
+        query = update.callback_query
+        posts = context.user_data.get('posts', [])
+        post = posts[index]
+        
+        try:
+            query.edit_message_caption(caption="⏳ Downloading...")
+            file_path = self.scraper.download_media(post['url'])
+            
+            if post['is_video']:
+                context.bot.send_video(
+                    chat_id=query.message.chat_id,
+                    video=open(file_path, 'rb'),
+                    caption=f"✅ Downloaded from @{post['username']}"
+                )
+            else:
+                context.bot.send_document(
+                    chat_id=query.message.chat_id,
+                    document=open(file_path, 'rb'),
+                    caption=f"✅ Downloaded from @{post['username']}"
+                )
+            
+            os.remove(file_path)
+            query.edit_message_caption(caption="☑️ Download complete!")
+
+        except Exception as e:
+            logger.error(f"Download failed: {e}")
+            query.edit_message_caption(caption="❌ Download failed")
+
+    def error_handler(self, update: Update, context: CallbackContext):
+        logger.error(msg="Exception:", exc_info=context.error)
+        if update:
+            context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="⚠️ An error occurred. Please try again."
+            )
+
+    def run(self):
+        self.updater.start_polling()
+        logger.info("Bot is running...")
+        self.updater.idle()
 
 if __name__ == '__main__':
     bot = InstaBot()
