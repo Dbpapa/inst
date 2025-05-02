@@ -1,6 +1,5 @@
 import instaloader
 import requests
-import re
 import os
 
 class InstagramScraper:
@@ -11,16 +10,15 @@ class InstagramScraper:
             save_metadata=False
         )
         
-    def get_profile_posts(self, username: str) -> list:
+    def get_posts(self, username: str) -> list:
         try:
             profile = instaloader.Profile.from_username(self.loader.context, username)
-            
             if profile.is_private:
                 return []
                 
             return [{
                 'url': post.url,
-                'caption': post.caption if post.caption else "",
+                'caption': post.caption[:1000] if post.caption else "",
                 'is_video': post.is_video,
                 'username': username,
                 'timestamp': post.date_utc
@@ -30,7 +28,7 @@ class InstagramScraper:
             print(f"Scraping error: {e}")
             return []
             
-    def download_media(self, url: str) -> str:
+    def download(self, url: str) -> str:
         try:
             if not os.path.exists('downloads'):
                 os.makedirs('downloads')
@@ -43,7 +41,6 @@ class InstagramScraper:
                 with open(filepath, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
-                        
             return filepath
             
         except Exception as e:
